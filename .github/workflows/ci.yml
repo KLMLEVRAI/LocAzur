@@ -81,7 +81,13 @@ jobs:
             -scheme Locazur \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
             clean build
+
 
       - name: Archive iOS app
         if: github.event_name == 'release'
