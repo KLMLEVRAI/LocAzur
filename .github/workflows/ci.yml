@@ -1,0 +1,133 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [created]
+
+jobs:
+  test-server:
+    name: Test Backend Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd server
+          npm ci
+
+      - name: Start server
+        run: |
+          cd server
+          node server.js &
+          sleep 3
+        env:
+          NODE_ENV: test
+
+      - name: Run tests
+        run: node test-server.js
+
+      - name: Test API endpoints
+        run: |
+          curl -s http://localhost:3000/api/health | grep -q "Locazur" && echo "✅ Health OK"
+          curl -s http://localhost:3000/api/destinations | grep -q "Paris" && echo "✅ Destinations OK"
+          curl -s -X POST http://localhost:3000/api/destinations \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Test","latitude":0,"longitude":0}' \
+            | grep -q "success" && echo "✅ POST OK"
+
+  lint-swift:
+    name: Lint Swift Code
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: |
+          swiftlint --strict || true
+        continue-on-error: true
+
+  build-ios:
+    name: Build iOS App
+    runs-on: macos-latest
+    needs: [test-server, lint-swift]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.0'
+
+      - name: Build iOS app
+        run: |
+          cd ios
+          xcodebuild -project Locazur.xcodeproj \
+            -scheme Locazur \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -allowProvisioningUpdates \
+            clean build
+
+      - name: Archive iOS app
+        if: github.event_name == 'release'
+        run: |
+          cd ios
+          xcodebuild -project Locazur.xcodeproj \
+            -scheme Locazur \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath ${{ runner.temp }}/Locazur.xcarchive \
+            archive
+
+      - name: Export IPA
+        if: github.event_name == 'release'
+        run: |
+          cd ios
+          xcodebuild -exportArchive \
+            -archivePath ${{ runner.temp }}/Locazur.xcarchive \
+            -exportPath ${{ runner.temp }}/Locazur \
+            -exportOptionsPlist ExportOptions.plist || true
+
+      - name: Upload artifacts
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Locazur-iOS
+          path: |
+            ${{ runner.temp }}/Locazur/*.ipa
+            ${{ runner.temp }}/Locazur/*.app
+
+  notify:
+    name: Notify Status
+    runs-on: ubuntu-latest
+    needs: [test-server, lint-swift, build-ios]
+    if: always()
+
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "✅ All CI/CD pipelines completed"
+          echo "Server tests: ${{ needs.test-server.result }}"
+          echo "Swift lint: ${{ needs.lint-swift.result }}"
+          echo "iOS build: ${{ needs.build-ios.result }}"
