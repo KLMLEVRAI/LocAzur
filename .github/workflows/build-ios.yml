@@ -1,0 +1,61 @@
+name: Native iOS Build (Unsigned IPA)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Native iOS App
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install Server Dependencies
+        run: |
+          cd server
+          npm ci --no-audit --no-fund
+
+      - name: Build Xcode Archive (No Signing)
+        run: |
+          cd ios
+          xcodebuild clean archive \
+            -project Locazur.xcodeproj \
+            -scheme Locazur \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath Locazur.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Extract and Generate .ipa
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -R Locazur.xcarchive/Products/Applications/Locazur.app Payload/
+          zip -qr Locazur-Native-Unsigned.ipa Payload
+          mv Locazur-Native-Unsigned.ipa ..
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Locazur-Native-Unsigned
+          path: Locazur-Native-Unsigned.ipa
+          retention-days: 7
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Locazur-App
+          path: ios/Locazur.xcarchive/Products/Applications/Locazur.app
+          retention-days: 7
