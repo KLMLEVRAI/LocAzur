@@ -86,7 +86,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            clean build
+            clean build | xcpretty || xcodebuild clean build
+
 
 
       - name: Archive iOS app
